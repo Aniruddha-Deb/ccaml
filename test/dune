@@ -1,0 +1,3 @@
+(test
+ (name ccaml)
+ (libraries re))
