@@ -1,88 +1,293 @@
 open Re
 
-type token = 
-    LPAREN | 
-    RPAREN |
-    LBRACE |
-    RBRACE |
-    OP_EQUAL |
-    OP_PLUS |
-    INT |
-    VOID |
-    EOF |
-    IDENTIFIER of string |
-    INTEGER of int
+type token = AUTO
+  | BREAK
+  | CASE
+  | CHAR
+  | CONST
+  | CONTINUE
+  | DEFAULT
+  | DO
+  | DOUBLE
+  | ELSE
+  | ENUM
+  | EXTERN
+  | FLOAT
+  | FOR
+  | GOTO
+  | IF
+  | INLINE
+  | INT
+  | LONG
+  | REGISTER
+  | RESTRICT
+  | RETURN
+  | SHORT
+  | SIGNED
+  | SIZEOF
+  | STATIC
+  | STRUCT
+  | SWITCH
+  | TYPEDEF
+  | UNION
+  | UNSIGNED
+  | VOID
+  | VOLATILE
+  | WHILE
+  | ALIGNAS
+  | ALIGNOF
+  | ATOMIC
+  | BOOL
+  | COMPLEX
+  | GENERIC
+  | IMAGINARY
+  | NORETURN
+  | STATIC_ASSERT
+  | THREAD_LOCAL
+  | FUNC_NAME
+  | ELLIPSIS
+  | RIGHT_ASSIGN
+  | LEFT_ASSIGN
+  | ADD_ASSIGN
+  | SUB_ASSIGN
+  | MUL_ASSIGN
+  | DIV_ASSIGN
+  | MOD_ASSIGN
+  | AND_ASSIGN
+  | XOR_ASSIGN
+  | OR_ASSIGN
+  | RIGHT_OP
+  | LEFT_OP
+  | INC_OP
+  | DEC_OP
+  | PTR_OP
+  | AND_OP
+  | OR_OP
+  | LE_OP
+  | GE_OP
+  | EQ_OP
+  | NE_OP
+  | SEMICOLON
+  | LBRACE
+  | RBRACE
+  | PERIOD
+  | LPAREN
+  | RPAREN
+  | COMMA
+  | COLON
+  | EQUALTO
+  | LBOX
+  | RBOX
+  | AMPERSAND
+  | EXCLMARK
+  | TILDE
+  | MINUS
+  | PLUS
+  | STAR
+  | SLASH
+  | PERCENT
+  | LESSTHAN
+  | GREATERTHAN
+  | CARET
+  | OR
+  | QUESMARK
+  | INT_LITERAL of string 
+  | FLOAT_LITERAL of string 
+  | STRING_LITERAL of string
+  | IDENTIFIER of string 
+  | ERROR
+  | WHITESPACE
 
-let re_keyword = compile (whole_string (seq [str "int"; str "void"]))
-let re_identifier = compile (whole_string (seq [alt [rg 'a' 'z'; rg 'A' 'Z']; rep (alt [rg 'a' 'z'; rg 'A' 'Z'; rg '0' '9'])]))
-let re_integer = compile (whole_string (seq [bos; opt (char '-'); rep1 (rg '0' '9')]))
-let re_operator = compile ((seq [bos; alt [char '='; char '+'; char '-'; char '*']]))
-let re_comment = compile (whole_string (seq [bos; str "//"; rep print]))
-let re_whitespace = compile (rep space)
+(* taken from https://www.quut.com/c/ANSI-C-grammar-y-2011.html *)
+let t_O   = (rg '0' '7')
+let t_D   = (rg '0' '9')
+let t_NZ  = (rg '1' '9')
+let t_LC  = (rg 'a' 'z')
+let t_UC  = (rg 'A' 'Z')
+let t_L   = alt [t_LC; t_UC; char '_']
+let t_A   = alt [t_LC; t_UC; char '_'; t_D]
+let t_H   = alt [rg 'a' 'f'; rg 'A' 'F'; t_D]
+let t_HP  = seq [char '0'; alt [char 'x'; char 'X']]
+let t_E   = seq [alt [char 'e'; char 'E']; opt (alt [char '-'; char '+']); rep1 t_D]
+let t_P   = seq [alt [char 'p'; char 'P']; opt (alt [char '-'; char '+']); rep1 t_D]
+let t_FS  = alt [char 'f'; char 'F'; char 'l'; char 'L']
+let t_IS  = alt [str "ul";  str "Ul";  str "uL";  str "UL";  str "lu";  str "Lu"; 
+                 str "lU";  str "LU";  str "llu"; str "llU"; str "LLu"; str "LLU"; 
+                 str "ulu"; str "Ulu"; str "uLu"; str "ULu"]
+let t_CP = alt [char 'u'; char 'U'; char 'L']
+let t_SP = alt [str "u8"; char 'u'; char 'U'; char 'L']
+let t_ES = seq [char '\\'; alt [
+        alt [char '\''; char '"'; char '?'; char '\\'; char 'a'; char 'b'; char 'f'; char 'n'; char 'r'; char 't'; char 'v'];
+        repn t_O 1 (Some 3);
+        seq [char 'x'; rep1 t_H]
+    ]]
 
-let split_ws str = Re.split re_whitespace str
+let t_WS = space
 
-(*
+(* leave the semantic parsing to the parser. Just pass a string up *)
+let re_int = compile (whole_string (alt [
+                seq [t_HP; (rep1 t_H); opt t_IS];
+                seq [t_NZ; (rep t_D);  opt t_IS];
+                seq [char '0'; (rep t_O);  opt t_IS]
+            ]))
+let re_float = compile (whole_string (alt [
+                seq [ rep1 t_D; t_E; opt t_FS];
+                seq [ rep t_D; char '.'; rep1 t_D; opt t_E; opt t_FS];
+                seq [ rep1 t_D; char '.'; opt t_E; opt t_FS];
+                seq [ t_HP; rep1 t_H; t_P; opt t_FS];
+                seq [ t_HP; rep t_H; char '.'; rep1 t_H; t_P; opt t_FS];
+                seq [ t_HP; rep1 t_H; char '.'; t_P; opt t_FS]
+            ]))
 
-Token classes:
-- Keywords 
-- Identifiers 
-- Operators 
-- Literals
-- Comments
+let re_str = compile (whole_string (
+    rep1 (seq [
+        opt t_SP; char '"';
+        rep (alt [
+            (diff notnl (alt [char '"'; char '\\']));
+            t_ES 
+        ]);
+        char '"'; (rep t_WS)
+        ])
+    ))
 
-Keywords -> lookahead needed to differentiate 
-Identifiers -> lookahead 
-Operators -> 
+let re_identifier = compile (whole_string (seq [t_L; rep t_A]))
 
-Lexing by hand:
-while the string is not exhausted:
-- Accumulate characters in temp
-- Check if any more characters left in span
-  - If yes, peek ahead and try matching the new accumulated string with a token
-  - If it matches, continue accumulating (maximal munch)
-  - If not, match the accumulated token with available tokens
+let re_comment = compile (whole_string (alt [seq [str "//"; rep notnl]; seq [str "/*"; rep any; str "*/"]]))
 
-eg intmax - has int as substr but not parsed as [int max]!
-- maximal munch for identifiers. 
-*)
+let re_whitespace = compile (whole_string t_WS)
 
-let string_to_token = function 
-    | "int" -> INT 
-    | "void" -> VOID 
-    | "(" -> LPAREN 
-    | ")" -> RPAREN
-    | "{" -> LBRACE 
-    | "}" -> RBRACE 
-    | "=" -> OP_EQUAL 
-    | "+" -> OP_PLUS 
-    | s -> if Re.execp re_integer s then INTEGER (int_of_string s) else IDENTIFIER s
+let str2tok_re s = 
+    if      (execp re_whitespace s) then WHITESPACE
+    else if (execp re_identifier s) then IDENTIFIER s
+    else if (execp re_int        s) then INT_LITERAL s
+    else if (execp re_float      s) then FLOAT_LITERAL s
+    else if (execp re_str        s) then STRING_LITERAL s
+    else ERROR
 
-let token_matches token = 
-    Re.execp re_keyword token || Re.execp re_identifier token || 
-    Re.execp re_integer token || Re.execp re_operator token
+let str2tok = function
+  | "auto"      -> AUTO
+  | "break"     -> BREAK
+  | "case"      -> CASE
+  | "char"      -> CHAR
+  | "const"     -> CONST
+  | "continue"  -> CONTINUE
+  | "default"   -> DEFAULT
+  | "do"        -> DO
+  | "double"    -> DOUBLE
+  | "else"      -> ELSE
+  | "enum"      -> ENUM
+  | "extern"    -> EXTERN
+  | "float"     -> FLOAT
+  | "for"       -> FOR
+  | "goto"      -> GOTO
+  | "if"        -> IF
+  | "inline"    -> INLINE
+  | "int"       -> INT
+  | "long"      -> LONG
+  | "register"  -> REGISTER
+  | "restrict"  -> RESTRICT
+  | "return"    -> RETURN
+  | "short"     -> SHORT
+  | "signed"    -> SIGNED
+  | "sizeof"    -> SIZEOF
+  | "static"    -> STATIC
+  | "struct"    -> STRUCT
+  | "switch"    -> SWITCH
+  | "typedef"   -> TYPEDEF
+  | "union"     -> UNION
+  | "unsigned"  -> UNSIGNED
+  | "void"      -> VOID
+  | "volatile"  -> VOLATILE
+  | "while"     -> WHILE
+  (* C11 stuff? *)
+  | "_Alignas"       -> ALIGNAS
+  | "_Alignof"       -> ALIGNOF
+  | "_Atomic"        -> ATOMIC
+  | "_Bool"          -> BOOL
+  | "_Complex"       -> COMPLEX
+  | "_Generic"       -> GENERIC
+  | "_Imaginary"     -> IMAGINARY
+  | "_Noreturn"      -> NORETURN
+  | "_Static_assert" -> STATIC_ASSERT
+  | "_Thread_local"  -> THREAD_LOCAL
+  | "__func__"       -> FUNC_NAME
+  | "..."       -> ELLIPSIS
+  | ">>="       -> RIGHT_ASSIGN
+  | "<<="       -> LEFT_ASSIGN
+  | "+="        -> ADD_ASSIGN
+  | "-="        -> SUB_ASSIGN
+  | "*="        -> MUL_ASSIGN
+  | "/="        -> DIV_ASSIGN
+  | "%="        -> MOD_ASSIGN
+  | "&="        -> AND_ASSIGN
+  | "^="        -> XOR_ASSIGN
+  | "|="        -> OR_ASSIGN
+  | ">>"        -> RIGHT_OP
+  | "<<"        -> LEFT_OP
+  | "++"        -> INC_OP
+  | "--"        -> DEC_OP
+  | "->"        -> PTR_OP
+  | "&&"        -> AND_OP
+  | "||"        -> OR_OP
+  | "<="        -> LE_OP
+  | ">="        -> GE_OP
+  | "=="        -> EQ_OP
+  | "!="        -> NE_OP
+  | ";"         -> SEMICOLON
+  | "{"         -> LBRACE
+  | "<%"        -> LBRACE
+  | "}"         -> RBRACE
+  | "%>"        -> RBRACE
+  | "."         -> PERIOD
+  | "("         -> LPAREN
+  | ")"         -> RPAREN
+  | ","         -> COMMA
+  | ":"         -> COLON
+  | "="         -> EQUALTO
+  | "["         -> LBOX
+  | "]"         -> RBOX
+  | "<:"        -> LBOX
+  | ":>"        -> RBOX
+  | "&"         -> AMPERSAND
+  | "!"         -> EXCLMARK
+  | "~"         -> TILDE
+  | "-"         -> MINUS
+  | "+"         -> PLUS
+  | "*"         -> STAR
+  | "/"         -> SLASH
+  | "%"         -> PERCENT
+  | "<"         -> LESSTHAN
+  | ">"         -> GREATERTHAN
+  | "^"         -> CARET
+  | "|"         -> OR
+  | "?"         -> QUESMARK
+  | s           -> str2tok_re s
 
-let rec maximal_munch span idx = 
-    if String.length span >= (idx+1) then
-        if not (token_matches (String.sub span 0 idx)) then
-            maximal_munch span idx+1
-        else if (token_matches (String.sub span 0 idx)) && (token_matches (String.sub span 0 (idx+1))) then
-            maximal_munch span idx+1
+let rec munch s i = 
+    (* this needs more case mashing for tokens that don't need one char of lookahead.*)
+    let open String in 
+    let prefix = (sub s 0 i) in
+    let ptok = (str2tok prefix) in
+    if (i+1) <= (length s) then
+        if ptok = ERROR then
+            munch s (i+1)
+        else 
+            let p2 = (sub s 0 (i+1)) in 
+            let ptok2 = (str2tok p2) in
+            if (ptok != ERROR) && (ptok2 != ERROR) then
+            munch s (i+1)
         else
-            idx
+            (ptok, i)
     else
-        idx
+        (ptok, i)
 
-let split_string_at s idx = ((String.sub s 0 idx), (String.sub s idx ((String.length s)-idx)))
-
-let rec match_span = function 
-    | "" -> []
-    | span -> let token_len = maximal_munch span 1 in 
-              let (prefix, suffix) = split_string_at span token_len in
-              (string_to_token prefix)::(match_span suffix)
+let discard = function
+    | WHITESPACE -> true 
+    | _ -> false
 
 let rec tokenize = function 
-    | span::s -> List.concat [(match_span span); (tokenize s)]
-    | [] -> []
-
-let tokenize_str s = tokenize (split_ws s)
+    | "" -> []
+    | span -> let (token, toklen) = munch span 1 in 
+              let suffix = (String.sub span toklen ((String.length span)-toklen)) in
+              if (discard token) then tokenize suffix
+              else token::(tokenize suffix)
