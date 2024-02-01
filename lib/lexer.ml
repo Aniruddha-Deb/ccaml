@@ -97,6 +97,7 @@ type token = AUTO
   | IDENTIFIER of string 
   | ERROR
   | WHITESPACE
+  | COMMENT
 
 (* taken from https://www.quut.com/c/ANSI-C-grammar-y-2011.html *)
 let t_O   = (rg '0' '7')
@@ -124,22 +125,21 @@ let t_ES = seq [char '\\'; alt [
 
 let t_WS = space
 
-(* leave the semantic parsing to the parser. Just pass a string up *)
-let re_int = compile (whole_string (alt [
+let re_int = compile (seq [start; alt [ 
                 seq [t_HP; (rep1 t_H); opt t_IS];
                 seq [t_NZ; (rep t_D);  opt t_IS];
                 seq [char '0'; (rep t_O);  opt t_IS]
-            ]))
-let re_float = compile (whole_string (alt [
+            ]])
+let re_float = compile (seq [start; alt [
                 seq [ rep1 t_D; t_E; opt t_FS];
                 seq [ rep t_D; char '.'; rep1 t_D; opt t_E; opt t_FS];
                 seq [ rep1 t_D; char '.'; opt t_E; opt t_FS];
                 seq [ t_HP; rep1 t_H; t_P; opt t_FS];
                 seq [ t_HP; rep t_H; char '.'; rep1 t_H; t_P; opt t_FS];
                 seq [ t_HP; rep1 t_H; char '.'; t_P; opt t_FS]
-            ]))
+            ]])
 
-let re_str = compile (whole_string (
+let re_str = compile (whole_string (seq [start;
     rep1 (seq [
         opt t_SP; char '"';
         rep (alt [
@@ -148,13 +148,13 @@ let re_str = compile (whole_string (
         ]);
         char '"'; (rep t_WS)
         ])
-    ))
+    ]))
 
-let re_identifier = compile (whole_string (seq [t_L; rep t_A]))
+let re_identifier = compile (seq [start; t_L; rep t_A])
 
-let re_comment = compile (whole_string (alt [seq [str "//"; rep notnl]; seq [str "/*"; rep any; str "*/"]]))
+let re_comment = compile (seq [start; alt [seq [str "//"; rep notnl]; seq [str "/*"; rep any; str "*/"]]])
 
-let re_whitespace = compile (whole_string t_WS)
+let re_whitespace = compile (seq [start; rep1 t_WS])
 
 let str2tok_re s = 
     if      (execp re_whitespace s) then WHITESPACE
@@ -261,11 +261,38 @@ let str2tok = function
   | "^"         -> CARET
   | "|"         -> OR
   | "?"         -> QUESMARK
-  | s           -> str2tok_re s
+  | _           -> ERROR
 
-let rec munch s i = 
-    (* this needs more case mashing for tokens that don't need one char of lookahead.*)
-    let open String in 
+(* TODO create string_to_int and string_to_float methods to actually parse 
+ and convert the int/float literals to OCaml ints/floats *)
+
+let re_munch s = 
+    match matches re_whitespace s with 
+    | m::_2 -> Some (WHITESPACE, String.length m)
+    | [] ->
+    match matches re_comment s with 
+    | m::_2 -> Some (COMMENT, String.length m)
+    | [] ->
+    match matches re_str s with 
+    | m::_ -> Some (STRING_LITERAL m, String.length m)
+    | [] -> 
+    match matches re_float s with 
+    | m::_ -> Some (FLOAT_LITERAL m, String.length m)
+    | [] -> 
+    match matches re_int s with
+    | m::_ -> Some (INT_LITERAL m, String.length m)
+    | [] -> 
+    match matches re_identifier s with
+    | m::_ -> if (str2tok m) = ERROR then Some (IDENTIFIER m, String.length m) else None
+    | [] -> 
+    None
+
+let rec munch s = function 
+    | 0 -> (match re_munch s with
+            | Some t -> t
+            | None -> (munch s 1))
+    | i -> 
+    let open String in
     let prefix = (sub s 0 i) in
     let ptok = (str2tok prefix) in
     if (i+1) <= (length s) then
@@ -283,11 +310,12 @@ let rec munch s i =
 
 let discard = function
     | WHITESPACE -> true 
+    | COMMENT -> true 
     | _ -> false
 
 let rec tokenize = function 
     | "" -> []
-    | span -> let (token, toklen) = munch span 1 in 
+    | span -> let (token, toklen) = munch span 0 in 
               let suffix = (String.sub span toklen ((String.length span)-toklen)) in
               if (discard token) then tokenize suffix
               else token::(tokenize suffix)
