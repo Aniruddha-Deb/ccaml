@@ -26,8 +26,8 @@ type expression =
   | MulExpression of expression * expression 
   | DivExpression of expression * expression 
   | Identifier of string 
-  | IntLiteral of int
-  | FloatLiteral of float
+  | IntLiteral of string
+  | FloatLiteral of string
 
 type lvalue = string
 type rvalue = expression
@@ -73,19 +73,70 @@ let parse_arg toks =
   ((typ, name), rem)
 
 let rec parse_arg_list = function 
-  | LPAREN::l -> (parse_arg_list l)
-  | toks -> (
+  | LPAREN::RPAREN::l -> ([], l)
+  | LPAREN::toks -> (
           let (arg, rem) = (parse_arg toks) in 
           match rem with 
           | (COMMA::rlist) -> (let (arg_list, rem) = (parse_arg_list rlist) in (arg::arg_list, rem))
           | (RPAREN::rlist2) -> (arg::[], rlist2)
           | _ -> raise ParseError
     )
+  | _ -> raise ParseError
+
+let rec parse_add_sub_expr toks = 
+  let (lhs, rem) = (parse_mul_div_expr toks) in 
+  match rem with 
+  | PLUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (AddExpression (lhs, rhs), rem)
+  | MINUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (SubExpression (lhs, rhs), rem)
+  | _ -> (lhs, rem) (* have to also match with eps - get follow of add_sub_expr! *)
+and
+parse_mul_div_expr = function 
+  | (INT_LITERAL i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (MulExpression ((IntLiteral i),rhs), rem)
+  | (IDENTIFIER i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (MulExpression ((Identifier i),rhs), rem)
+  | (INT_LITERAL i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (DivExpression ((IntLiteral i),rhs), rem)
+  | (IDENTIFIER i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (DivExpression ((Identifier i),rhs), rem)
+  | (INT_LITERAL i)::toks -> ((IntLiteral i), toks)
+  | (IDENTIFIER i)::toks -> ((Identifier i), toks)
+  | _ -> raise ParseError
+
+let parse_expr toks = (parse_add_sub_expr toks)
+
+let parse_assignment_stmt toks = 
+  let ((_, name), rem) = (parse_arg toks) in 
+  match rem with 
+  | EQUALTO::toks -> let (expr, rem) = (parse_expr toks) in (AssignmentStatement (name, expr), rem)
+  | _ -> raise ParseError
+  
+
+let rec parse_stmt = function 
+  | SEMICOLON::toks -> (parse_stmt toks)
+  | RBRACE::toks -> (parse_compound_stmt (RBRACE::toks))
+  | t -> (parse_assignment_stmt t)
+and 
+parse_stmt_list = function 
+  | RBRACE::toks -> ([], (RBRACE::toks))
+  | toks -> (
+      let (stmt, rem) = (parse_stmt toks) in 
+      let (stmt_list, rem) = (parse_stmt_list rem) in 
+      (stmt::stmt_list, rem)
+    )
+and
+(* need a parse_block_stmt here, with } in it's follow *)
+parse_compound_stmt = function 
+  | LBRACE::toks -> (
+      let (stmt, rem) = (parse_stmt_list toks) in 
+      match rem with 
+      | RBRACE::toks -> (CompoundStatement stmt, toks)
+      | _ -> raise ParseError
+  )
+  | _ -> raise ParseError
+
 
 let parse_func toks = 
   let ((ret_type, fn_name), rem) = parse_arg toks in 
   let (args, rem) = parse_arg_list rem in 
-  ((ret_type, fn_name, args, CompoundStatement []), rem)
+  let (stmts, rem) = parse_compound_stmt rem in 
+  ((ret_type, fn_name, args, stmts), rem)
 
 let rec parse_file = function 
   | [] -> []
