@@ -83,18 +83,35 @@ let rec parse_arg_list = function
     )
   | _ -> raise ParseError
 
+(* This is right associative, not left. Fix by sinking/swimming nodes up *)
+
+let add_expr lhs rhs = AddExpression(lhs, rhs)
+let sub_expr lhs rhs = SubExpression(lhs, rhs)
+let mul_expr lhs rhs = MulExpression(lhs, rhs)
+let div_expr lhs rhs = DivExpression(lhs, rhs)
+
+let leftassoc_add_sub_expr constructor lhs = function 
+  | AddExpression (rlhs, rrhs) -> AddExpression(constructor lhs rlhs, rrhs)
+  | SubExpression (rlhs, rrhs) -> SubExpression(constructor lhs rlhs, rrhs)
+  | rhs -> (constructor lhs rhs)
+
+let leftassoc_mul_div_expr constructor lhs = function 
+  | MulExpression (rlhs, rrhs) -> MulExpression(constructor lhs rlhs, rrhs)
+  | DivExpression (rlhs, rrhs) -> DivExpression(constructor lhs rlhs, rrhs)
+  | rhs -> (constructor lhs rhs)
+
 let rec parse_add_sub_expr toks = 
   let (lhs, rem) = (parse_mul_div_expr toks) in 
   match rem with 
-  | PLUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (AddExpression (lhs, rhs), rem)
-  | MINUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (SubExpression (lhs, rhs), rem)
+  | PLUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (leftassoc_add_sub_expr add_expr lhs rhs, rem)
+  | MINUS::toks -> let (rhs, rem) = (parse_add_sub_expr toks) in (leftassoc_add_sub_expr sub_expr lhs rhs, rem)
   | _ -> (lhs, rem) (* have to also match with eps - get follow of add_sub_expr! *)
 and
 parse_mul_div_expr = function 
-  | (INT_LITERAL i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (MulExpression ((IntLiteral i),rhs), rem)
-  | (IDENTIFIER i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (MulExpression ((Identifier i),rhs), rem)
-  | (INT_LITERAL i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (DivExpression ((IntLiteral i),rhs), rem)
-  | (IDENTIFIER i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (DivExpression ((Identifier i),rhs), rem)
+  | (INT_LITERAL i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (leftassoc_mul_div_expr mul_expr (IntLiteral i) rhs, rem)
+  | (IDENTIFIER i)::STAR::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (leftassoc_mul_div_expr mul_expr (Identifier i) rhs, rem)
+  | (INT_LITERAL i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (leftassoc_mul_div_expr div_expr (IntLiteral i) rhs, rem)
+  | (IDENTIFIER i)::SLASH::toks -> let (rhs, rem) = (parse_mul_div_expr toks) in (leftassoc_mul_div_expr div_expr (Identifier i) rhs, rem)
   | (INT_LITERAL i)::toks -> ((IntLiteral i), toks)
   | (IDENTIFIER i)::toks -> ((Identifier i), toks)
   | _ -> raise ParseError
@@ -107,21 +124,20 @@ let parse_assignment_stmt toks =
   | EQUALTO::toks -> let (expr, rem) = (parse_expr toks) in (AssignmentStatement (name, expr), rem)
   | _ -> raise ParseError
   
-
 let rec parse_stmt = function 
   | SEMICOLON::toks -> (parse_stmt toks)
-  | RBRACE::toks -> (parse_compound_stmt (RBRACE::toks))
+  | LBRACE::toks -> (parse_compound_stmt (LBRACE::toks))
   | t -> (parse_assignment_stmt t)
 and 
 parse_stmt_list = function 
   | RBRACE::toks -> ([], (RBRACE::toks))
   | toks -> (
       let (stmt, rem) = (parse_stmt toks) in 
-      let (stmt_list, rem) = (parse_stmt_list rem) in 
-      (stmt::stmt_list, rem)
+      match rem with 
+      | SEMICOLON::toks -> let (stmt_list, rem) = (parse_stmt_list toks) in (stmt::stmt_list, rem)
+      | _ -> raise ParseError
     )
 and
-(* need a parse_block_stmt here, with } in it's follow *)
 parse_compound_stmt = function 
   | LBRACE::toks -> (
       let (stmt, rem) = (parse_stmt_list toks) in 
