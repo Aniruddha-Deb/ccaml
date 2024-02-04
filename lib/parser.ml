@@ -72,13 +72,19 @@ let parse_arg toks =
   let (name, rem) = parse_identifier rem in 
   ((typ, name), rem)
 
-let rec parse_arg_list = function 
+let rec parse_arg_list toks = 
+  let (arg, rem) = (parse_arg toks) in 
+  match rem with 
+  | (COMMA::rlist) -> (let (arg_list, rem) = (parse_arg_list rlist) in (arg::arg_list, rem))
+  | (RPAREN::rlist) -> (arg::[], (RPAREN::rlist))
+  | _ -> raise ParseError
+
+let parse_args = function 
   | LPAREN::RPAREN::l -> ([], l)
   | LPAREN::toks -> (
-          let (arg, rem) = (parse_arg toks) in 
+          let (arg_list, rem) = (parse_arg_list toks) in 
           match rem with 
-          | (COMMA::rlist) -> (let (arg_list, rem) = (parse_arg_list rlist) in (arg::arg_list, rem))
-          | (RPAREN::rlist2) -> (arg::[], rlist2)
+          | (RPAREN::rlist2) -> (arg_list, rlist2)
           | _ -> raise ParseError
     )
   | _ -> raise ParseError
@@ -121,22 +127,18 @@ let parse_expr toks = (parse_add_sub_expr toks)
 let parse_assignment_stmt toks = 
   let ((_, name), rem) = (parse_arg toks) in 
   match rem with 
-  | EQUALTO::toks -> let (expr, rem) = (parse_expr toks) in (AssignmentStatement (name, expr), rem)
+  | EQUALTO::toks -> (
+        let (expr, rem) = (parse_expr toks) in 
+        match rem with 
+        | SEMICOLON::rem -> (AssignmentStatement (name, expr), rem)
+        | _ -> raise ParseError 
+    )
   | _ -> raise ParseError
   
 let rec parse_stmt = function 
   | SEMICOLON::toks -> (parse_stmt toks)
   | LBRACE::toks -> (parse_compound_stmt (LBRACE::toks))
   | t -> (parse_assignment_stmt t)
-and 
-parse_stmt_list = function 
-  | RBRACE::toks -> ([], (RBRACE::toks))
-  | toks -> (
-      let (stmt, rem) = (parse_stmt toks) in 
-      match rem with 
-      | SEMICOLON::toks -> let (stmt_list, rem) = (parse_stmt_list toks) in (stmt::stmt_list, rem)
-      | _ -> raise ParseError
-    )
 and
 parse_compound_stmt = function 
   | LBRACE::toks -> (
@@ -146,11 +148,19 @@ parse_compound_stmt = function
       | _ -> raise ParseError
   )
   | _ -> raise ParseError
+and 
+parse_stmt_list = function 
+  | RBRACE::toks -> ([], (RBRACE::toks))
+  | toks -> (
+      let (stmt, rem) = (parse_stmt toks) in 
+      let (stmt_list, rem) = (parse_stmt_list rem) in 
+      (stmt::stmt_list, rem)
+    )
 
 
 let parse_func toks = 
   let ((ret_type, fn_name), rem) = parse_arg toks in 
-  let (args, rem) = parse_arg_list rem in 
+  let (args, rem) = parse_args rem in 
   let (stmts, rem) = parse_compound_stmt rem in 
   ((ret_type, fn_name, args, stmts), rem)
 
